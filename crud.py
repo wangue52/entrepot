@@ -222,35 +222,33 @@ def create_price(db: Session, price: schemas.PriceCreate):
     db.commit()
     db.refresh(db_price)
     return db_price
+  
 
-def get_price(db: Session, product_id: int, sale_point_id: int, date_id: int):
-    return (
+def get_price(db: Session,product_id: int,sale_point_id: int,date_id: int):
+    return(
         db.query(models.Price)
         .filter(
             models.Price.id_product == product_id,
             models.Price.id_sale_point == sale_point_id,
-            models.Price.id_date == date_id
-        )
-        .first()
-    )
-
+            models.Price.id_date == date_id)
+        ).first()
+    
+	
 def get_prices(
-    db: Session, 
-    skip: int = 0, 
-    limit: int = 100,
+    db: Session,
+    skip: int = 0,
+    limit: int = 10,
     product_id: Optional[int] = None,
     sale_point_id: Optional[int] = None,
     date_id: Optional[int] = None
-):
+) -> List[models.Price]:
     query = db.query(models.Price)
-    
-    if product_id:
+    if product_id is not None:
         query = query.filter(models.Price.id_product == product_id)
-    if sale_point_id:
+    if sale_point_id is not None:
         query = query.filter(models.Price.id_sale_point == sale_point_id)
-    if date_id:
+    if date_id is not None:
         query = query.filter(models.Price.id_date == date_id)
-    
     return query.offset(skip).limit(limit).all()
 
 def get_prices_count(db: Session):
@@ -310,7 +308,26 @@ def get_price_history(
             )
         )
     
-    return query.all()
+    # Transformer les résultats en structure appropriée
+    results = query.all()
+    price_history = []
+    
+    for r in results:
+        price_history.append({
+            "date": {
+                "id": r.date_id,
+                "day": r.day,
+                "month": r.month,
+                "year": r.year
+            },
+            "price": r.price,
+            "sale_point": {
+                "id": r.sale_point_id,
+                "name": r.sale_point_name
+            }
+        })
+    
+    return price_history
 
 def get_price_comparison(
     db: Session, 
@@ -493,17 +510,19 @@ def get_price_evolution(db: Session, product_id: int):
 
 def get_city_price_comparison(db: Session, product_id: int):
     """Compare les prix d'un produit par ville"""
+    # Créer une sous-requête pour les dernières dates
     subquery = (
         db.query(
             models.Price.id_sale_point,
             func.max(models.Date.id).label("max_date_id")
         )
-        .join(models.Date, models.Price.id_date == models.Date.id)
+        .join(models.Date, models.Price.id_date == models.Date.id)  # Jointure explicite ici
         .filter(models.Price.id_product == product_id)
         .group_by(models.Price.id_sale_point)
         .subquery()
     )
     
+    # Requête principale avec jointures explicites
     return (
         db.query(
             models.SalePoint.city,
@@ -515,12 +534,54 @@ def get_city_price_comparison(db: Session, product_id: int):
             models.Price.id_sale_point == subquery.c.id_sale_point,
             models.Price.id_date == subquery.c.max_date_id
         ))
-        .join(models.SalePoint, models.Price.id_sale_point == models.SalePoint.id)
+        .join(models.SalePoint, models.Price.id_sale_point == models.SalePoint.id)  # Jointure explicite
         .filter(models.Price.id_product == product_id)
         .group_by(models.SalePoint.city)
         .all()
     )
+# Ajoutez cette fonction dans crud.py
 
+def get_price_details(
+    db: Session, 
+    sale_point_id: Optional[int] = None,
+    limit: int = 100
+):
+    """Récupère les prix avec les détails complets (produit + date)"""
+    query = (
+        db.query(
+            models.Price,
+            models.Product,
+            models.Date
+        )
+        .join(models.Product, models.Price.id_product == models.Product.id)
+        .join(models.Date, models.Price.id_date == models.Date.id)
+    )
+    
+    if sale_point_id:
+        query = query.filter(models.Price.id_sale_point == sale_point_id)
+        
+    results = query.limit(limit).all()
+    
+    # Transformer les résultats en format détaillé
+    price_details = []
+    for price, product, date in results:
+        price_details.append({
+            "id": price.id,
+            "price": price.price,
+            "date": {
+                "id": date.id,
+                "day": date.day,
+                "month": date.month,
+                "year": date.year
+            },
+            "product": {
+                "id": product.id,
+                "title": product.title,
+                "link": product.link
+            }
+        })
+    
+    return price_details
 def get_price_trends(db: Session, days: int = 30):
     """Analyse les tendances de prix sur une période donnée"""
     end_date = datetime.now().date()

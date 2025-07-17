@@ -9,7 +9,7 @@ import crud
 import models
 import schemas
 from databases import SessionLocal, engine
-from fastapi import FastAPI, Depends, HTTPException, Query, status
+from fastapi import FastAPI, Depends, HTTPException, Query, status, Response
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
@@ -205,6 +205,35 @@ def delete_sale_point(sale_point_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Point de vente non trouvé")
 
 # ============================================================================
+# ENDPOINTS POUR LES POINTS DE VENTE (AJOUTS)
+# ============================================================================
+
+@app.get("/sale-points/{sale_point_id}/products", 
+         response_model=List[schemas.Product],
+         tags=["Sale Points"],
+         summary="Obtenir les produits d'un point de vente")
+def read_sale_point_products(sale_point_id: int, db: Session = Depends(get_db)):
+    """Retourne les produits associés à un point de vente spécifique"""
+    # Récupérer les associations
+    associations = crud.get_product_sale_points(
+        db, 
+        sale_point_id=sale_point_id
+    )
+    
+    # Récupérer les produits correspondants
+    product_ids = [assoc.id_product for assoc in associations]
+    products = [crud.get_product(db, pid) for pid in product_ids]
+    
+    return [p for p in products if p is not None]
+
+@app.get("/sale-points/{sale_point_id}/prices", 
+         response_model=List[schemas.PriceDetail],
+         tags=["Sale Points"],
+         summary="Obtenir l'historique des prix d'un point de vente")
+def read_sale_point_prices(sale_point_id: int, db: Session = Depends(get_db)):
+    """Retourne l'historique des prix pour un point de vente spécifique"""
+    return crud.get_price_details(db, sale_point_id=sale_point_id)
+# ============================================================================
 # ENDPOINTS POUR LES DATES
 # ============================================================================
 
@@ -287,23 +316,27 @@ def create_price(price: schemas.PriceCreate, db: Session = Depends(get_db)):
     
     return crud.create_price(db, price)
 
-@app.get("/prices/", 
-         response_model=List[schemas.Price],
-         tags=["Prices"],
-         summary="Lister tous les prix")
-def read_prices(
-    skip: int = Query(0, description="Nombre d'éléments à sauter"),
-    limit: int = Query(100, description="Nombre maximum d'éléments à retourner"),
-    product_id: Optional[int] = Query(None, description="Filtrer par ID de produit"),
-    sale_point_id: Optional[int] = Query(None, description="Filtrer par ID de point de vente"),
-    date_id: Optional[int] = Query(None, description="Filtrer par ID de date"),
+@app.get("/prices/", response_model=List[schemas.Price])
+async def read_prices(
+    response: Response,
+    skip: int = 0,
+    limit: int = 10,
+    product_id: Optional[int] = None,
+    sale_point_id: Optional[int] = None,
+    date_id: Optional[int] = None,
     db: Session = Depends(get_db)
 ):
-    """Retourne une liste paginée de prix avec filtres optionnels"""
-    return crud.get_prices(db, skip=skip, limit=limit, 
-                          product_id=product_id, 
-                          sale_point_id=sale_point_id, 
-                          date_id=date_id)
+    count_query = db.query(models.Price)
+    if product_id is not None:
+        count_query = count_query.filter(models.Price.id_product == product_id)
+    if sale_point_id is not None:
+        count_query = count_query.filter(models.Price.id_sale_point == sale_point_id)
+    if date_id is not None:
+        count_query = count_query.filter(models.Price.id_date == date_id)
+    total_count = count_query.count()
+    prices = crud.get_prices(db, skip=skip, limit=limit, product_id=product_id, sale_point_id=sale_point_id, date_id=date_id)
+    response.headers["X-Total-Count"] = str(total_count)
+    return prices
 
 @app.get("/prices/{product_id}/{sale_point_id}/{date_id}", 
          response_model=schemas.Price,
@@ -336,7 +369,7 @@ def delete_price(
         raise HTTPException(status_code=404, detail="Prix non trouvé")
 
 @app.get("/products/{product_id}/prices", 
-         response_model=List[schemas.PriceDetail],
+         response_model=List[schemas.PriceHistoryEntry],
          tags=["Prices"],
          summary="Historique des prix d'un produit")
 def get_price_history(

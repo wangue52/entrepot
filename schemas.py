@@ -7,7 +7,26 @@ from datetime import datetime, timedelta
 # ============================================================================
 # MODÈLES DE BASE
 # ============================================================================
+# Ajoutez/verifiez ces schémas dans schemas.py
 
+# schemas.py
+
+class DateObject(BaseModel):
+    id: int
+    day: int
+    month: int
+    year: int
+
+class ProductSimple(BaseModel):
+    id: int
+    title: str
+    link: Optional[str]
+
+class PriceDetail(BaseModel):
+    id: int
+    price: float
+    date: DateObject
+    product: ProductSimple
 class ProductBase(BaseModel):
     title: str = Field(..., max_length=255, description="Nom du produit")
     link: Optional[str] = Field(None, description="Lien vers le produit")
@@ -96,6 +115,17 @@ class PriceComparison(BaseModel):
 
     class Config:
            model_config = ConfigDict(from_attributes=True)
+		   
+class SalePointSimple(BaseModel):
+    id: int
+    name: str		   
+class PriceHistoryEntry(BaseModel):
+    date: DateObject
+    price: float
+    sale_point: SalePointSimple
+
+
+		   
 
 # ============================================================================
 # MODÈLES POUR LES STATISTIQUES
